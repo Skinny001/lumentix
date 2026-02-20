@@ -9,6 +9,7 @@ import { EventsModule } from './events/events.module';
 import { StellarModule } from './stellar/stellar.module';
 import { SponsorsModule } from './sponsors/sponsors.module';
 import { WalletModule } from './wallet/wallet.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { WalletModule } from './wallet/wallet.module';
     StellarModule,
     SponsorsModule,
     WalletModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
