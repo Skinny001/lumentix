@@ -10,6 +10,7 @@ import * as bcrypt from 'bcryptjs';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UserRole } from './enums/user-role.enum';
+import { WalletInfoResponseDto } from './dto/wallet-info-response.dto';
 
 const BCRYPT_SALT_ROUNDS = 10;
 
@@ -31,10 +32,8 @@ export class UsersService {
     }
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
-
     const user = this.usersRepository.create({ email, passwordHash, role });
     const saved = await this.usersRepository.save(user);
-
     return this.sanitize(saved);
   }
 
@@ -61,6 +60,20 @@ export class UsersService {
     user.stellarPublicKey = publicKey;
     const saved = await this.usersRepository.save(user);
     return this.sanitize(saved);
+  }
+
+  // ── Wallet info ─────────────────────────────────────────────────────────
+
+  async getWalletInfo(userId: string): Promise<WalletInfoResponseDto> {
+    // ← add
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with id ${userId} not found`);
+    }
+    return {
+      stellarPublicKey: user.stellarPublicKey,
+      hasLinkedWallet: user.stellarPublicKey !== null,
+    };
   }
 
   private sanitize(user: User): Omit<User, 'passwordHash'> {

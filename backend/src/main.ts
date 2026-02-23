@@ -9,22 +9,22 @@ import { RateLimitGuard } from './common/security/rate-limit.guard';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // ── Security middleware ────────────────────────────────────────────────────
+  // ── Trust first proxy hop so req.ip is the real client IP ─────────────────
+  // app.getHttpAdapter().getInstance().set('trust proxy', 1); // ← add
+
   app.use(helmet(helmetOptions));
   app.enableCors(corsOptions);
 
-  // ── Global guards & pipes ─────────────────────────────────────────────────
-  app.useGlobalGuards(new RateLimitGuard(100, 60_000)); // 100 req / IP / min
+  app.useGlobalGuards(new RateLimitGuard(100, 60_000));
 
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
       whitelist: true,
-      forbidNonWhitelisted: true, // harden: reject unknown fields (was false)
+      forbidNonWhitelisted: true,
     }),
   );
 
-  // ── Swagger ───────────────────────────────────────────────────────────────
   const config = new DocumentBuilder()
     .setTitle('API')
     .setVersion('1.0')

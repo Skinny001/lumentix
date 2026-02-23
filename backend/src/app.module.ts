@@ -14,6 +14,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { AuditModule } from './audit/audit.module';
 import { HealthModule } from './health/health.module';
 import { NotificationModule } from './notifications/notification.module'; // Added
+import { RedisModule } from './common/redis/redis.module';
 
 @Module({
   imports: [
@@ -21,6 +22,8 @@ import { NotificationModule } from './notifications/notification.module'; // Add
       isGlobal: true,
       envFilePath: '.env',
     }),
+
+    RedisModule,
 
     // 1. Database Configuration
     TypeOrmModule.forRootAsync({

@@ -26,10 +26,15 @@ export class RateLimitGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
-    const ip =
-      (request.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ??
-      request.socket.remoteAddress ??
-      'unknown';
+
+    /**
+     * Use req.ip which Express resolves correctly when `trust proxy` is
+     * configured in main.ts:
+     *   app.getHttpAdapter().getInstance().set('trust proxy', 1);
+     *
+     * Do NOT read X-Forwarded-For directly — it is spoofable by any client.
+     */
+    const ip = request.ip ?? request.socket.remoteAddress ?? 'unknown'; // ← fixed
 
     const now = Date.now();
     const entry = this.store.get(ip);
