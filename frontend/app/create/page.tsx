@@ -5,6 +5,11 @@ import { useFieldArray, useForm, type SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Image from "next/image";
+import {
+    getAddress as getFreighterAddress,
+    isConnected as isFreighterConnected,
+    requestAccess as requestFreighterAccess,
+} from "@stellar/freighter-api";
 
 declare global {
     interface Window {
@@ -12,6 +17,7 @@ declare global {
             getPublicKey: () => Promise<string>;
             isConnected?: () => Promise<boolean>;
         };
+        freighter?: unknown;
     }
 }
 
@@ -101,6 +107,18 @@ type EventRecord = {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
+function toUserError(error: unknown): string {
+    if (error instanceof TypeError && error.message.toLowerCase().includes("failed to fetch")) {
+        return `Cannot reach API at ${API_BASE_URL}. Ensure backend is running and NEXT_PUBLIC_API_URL is correct.`;
+    }
+
+    if (error instanceof Error && error.message.toLowerCase().includes("rejected")) {
+        return "Wallet connection was rejected. Approve the Freighter prompt and try again.";
+    }
+
+    return error instanceof Error ? error.message : "Request failed";
+}
+
 function toApiDate(localDateTime: string): string {
     return new Date(localDateTime).toISOString();
 }
@@ -113,6 +131,16 @@ function formatDate(dateString?: string): string {
 }
 
 async function parseApiError(response: Response): Promise<string> {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!contentType.includes("application/json")) {
+        const text = await response.text();
+        if (text.trimStart().startsWith("<!DOCTYPE") || text.trimStart().startsWith("<html")) {
+            return "API returned HTML instead of JSON. Check NEXT_PUBLIC_API_URL and backend port.";
+        }
+        return `Unexpected response format (status ${response.status}).`;
+    }
+
     try {
         const payload = await response.json();
         if (typeof payload?.message === "string") {
@@ -192,7 +220,7 @@ export default function CreateEventPage() {
             const payload = (await response.json()) as { data?: EventRecord[] };
             setEvents(payload.data ?? []);
         } catch (error) {
-            setLoadError(error instanceof Error ? error.message : "Failed to load events");
+            setLoadError(toUserError(error));
         } finally {
             setIsLoadingEvents(false);
         }
@@ -216,19 +244,49 @@ export default function CreateEventPage() {
         setSubmitError(null);
         setSubmitSuccess(null);
 
-        if (!window.freighterApi?.getPublicKey) {
-            setSubmitError("Freighter wallet was not detected. Install Freighter or enter your wallet key manually.");
-            return;
-        }
-
         try {
             setIsConnectingWallet(true);
-            const publicKey = await window.freighterApi.getPublicKey();
+            const { isConnected, error: connectionError } = await isFreighterConnected();
+
+            if (connectionError) {
+                throw new Error(connectionError.message || "Unable to connect to Freighter.");
+            }
+
+            let publicKey = "";
+
+            if (isConnected) {
+                const accessResult = await requestFreighterAccess();
+
+                if (accessResult.error) {
+                    throw new Error(accessResult.error.message || "Freighter access request failed.");
+                }
+
+                publicKey = accessResult.address;
+
+                if (!publicKey) {
+                    const addressResult = await getFreighterAddress();
+
+                    if (addressResult.error) {
+                        throw new Error(addressResult.error.message || "Unable to read wallet address from Freighter.");
+                    }
+
+                    publicKey = addressResult.address;
+                }
+            }
+
+            if (!publicKey && window.freighterApi?.getPublicKey) {
+                publicKey = await window.freighterApi.getPublicKey();
+            }
+
+            if (!publicKey) {
+                throw new Error("Freighter was not detected. Install/unlock Freighter and try again, or enter your wallet key manually.");
+            }
+
             setValue("walletPublicKey", publicKey, { shouldValidate: true, shouldDirty: true });
             window.localStorage.setItem("lumentix_wallet_public_key", publicKey);
             setSubmitSuccess("Wallet connected successfully.");
         } catch (error) {
-            setSubmitError(error instanceof Error ? error.message : "Unable to connect wallet");
+            setSubmitError(toUserError(error));
         } finally {
             setIsConnectingWallet(false);
         }
@@ -309,7 +367,7 @@ export default function CreateEventPage() {
             });
             await fetchEvents();
         } catch (error) {
-            setSubmitError(error instanceof Error ? error.message : "Failed to create event");
+            setSubmitError(toUserError(error));
         }
     };
 

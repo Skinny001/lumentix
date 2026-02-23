@@ -1,10 +1,9 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { TicketsService } from '../tickets.service';
 import { VerifyTicketDto } from './dto/verify-ticket.dto';
-import { Roles } from '../../auth/decorators/roles.decorator'; // Adjust path
-import { RolesGuard } from '../../auth/guards/roles.guard';     // Adjust path
-import { UserRole } from '../../users/enums/user-role.enum';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard'; // Assuming you have this
+import { Roles, Role } from '../../common/decorators/roles.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 
 @Controller('tickets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -12,7 +11,7 @@ export class VerificationController {
   constructor(private readonly ticketsService: TicketsService) {}
 
   @Post('verify')
-  @Roles(UserRole.ADMIN, UserRole.ORGANIZER)
+  @Roles(Role.ADMIN, Role.ORGANIZER)
   async verify(@Body() verifyTicketDto: VerifyTicketDto) {
     const { ticketId, signature } = verifyTicketDto;
     const ticket = await this.ticketsService.verifyTicket(ticketId, signature);

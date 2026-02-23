@@ -16,6 +16,13 @@ type EventRecord = {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
+function toUserError(error: unknown): string {
+    if (error instanceof TypeError && error.message.toLowerCase().includes("failed to fetch")) {
+        return `Cannot reach API at ${API_BASE_URL}. Ensure backend is running and NEXT_PUBLIC_API_URL is correct.`;
+    }
+    return error instanceof Error ? error.message : "Request failed";
+}
+
 function formatDate(dateString: string): string {
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) return "-";
@@ -23,6 +30,16 @@ function formatDate(dateString: string): string {
 }
 
 async function parseApiError(response: Response): Promise<string> {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!contentType.includes("application/json")) {
+        const text = await response.text();
+        if (text.trimStart().startsWith("<!DOCTYPE") || text.trimStart().startsWith("<html")) {
+            return "API returned HTML instead of JSON. Check NEXT_PUBLIC_API_URL and backend port.";
+        }
+        return `Unexpected response format (status ${response.status}).`;
+    }
+
     try {
         const payload = await response.json();
         if (typeof payload?.message === "string") return payload.message;
@@ -57,7 +74,7 @@ export default function EventsPage() {
                 const payload = (await response.json()) as { data?: EventRecord[] };
                 setEvents(payload.data ?? []);
             } catch (loadError) {
-                setError(loadError instanceof Error ? loadError.message : "Could not load events");
+                setError(toUserError(loadError));
             } finally {
                 setIsLoading(false);
             }
