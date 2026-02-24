@@ -6,13 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Payment, PaymentStatus } from '../../entities/payment.entity';
-import { TicketEntity } from '../../../tickets/entities/ticket.entity';
-import { Event, EventStatus } from '../../../events/entities/event.entity';
-import { User } from '../../../users/entities/user.entity';
-import { StellarService } from '../../../stellar/stellar.service';
-import { AuditService } from '../../../audit/audit.service';
-import { EscrowService } from '../escrow.service';
+import { Payment, PaymentStatus } from '../entities/payment.entity';
+import { TicketEntity } from '../../tickets/entities/ticket.entity';
+import { Event, EventStatus } from '../../events/entities/event.entity';
+import { User } from '../../users/entities/user.entity';
+import { StellarService } from '../../stellar/stellar.service';
+import { AuditService } from '../../audit/audit.service';
+import { EscrowService } from '../services/escrow.service';
 import { RefundResultDto } from './dto/refund-result.dto';
 
 @Injectable()
@@ -98,7 +98,11 @@ export class RefundService {
     const results: RefundResultDto[] = [];
 
     for (const payment of confirmedPayments) {
-      const result = await this.processSingleRefund(payment, event, escrowSecret);
+      const result = await this.processSingleRefund(
+        payment,
+        event,
+        escrowSecret,
+      );
       results.push(result);
     }
 
@@ -125,7 +129,10 @@ export class RefundService {
     event: Event,
     escrowSecret: string,
   ): Promise<RefundResultDto> {
-    const base: Pick<RefundResultDto, 'paymentId' | 'userId' | 'amount' | 'currency'> = {
+    const base: Pick<
+      RefundResultDto,
+      'paymentId' | 'userId' | 'amount' | 'currency'
+    > = {
       paymentId: payment.id,
       userId: payment.userId,
       amount: Number(payment.amount),

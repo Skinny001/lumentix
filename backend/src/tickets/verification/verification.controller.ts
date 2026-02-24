@@ -12,10 +12,11 @@ export class VerificationController {
 
   @Post('verify')
   @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Roles(Role.ADMIN, Role.ORGANIZER)
   async verify(@Body() verifyTicketDto: VerifyTicketDto) {
     const { ticketId, signature } = verifyTicketDto;
     const ticket = await this.ticketsService.verifyTicket(ticketId, signature);
-    
+
     return {
       message: 'Ticket verified successfully',
       ticketId: ticket.id,
