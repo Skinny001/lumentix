@@ -269,7 +269,18 @@ fn test_use_ticket_unauthorized() {
 }
 
 #[test]
-fn test_use_ticket_already_used() {
+fn test_get_event_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, client) = create_test_contract(&env);
+
+    let result = client.try_get_event(&999u64);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_update_status_draft_to_published() {
     let env = Env::default();
     env.mock_all_auths();
 
