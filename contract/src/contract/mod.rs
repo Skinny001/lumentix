@@ -116,75 +116,71 @@ impl TicketContract {
 
         ticket
     }
-
-    /// Retrieve a ticket by its ID.
-    pub fn get_ticket(env: Env, ticket_id: Symbol) -> Option<Ticket> {
-        env.storage().persistent().get::<Symbol, Ticket>(&ticket_id)
-    }
-
-    /// Transfer a ticket from one owner to another.
-    ///
-    /// Requires `from` to authorize the operation and ensures the ticket
-    /// has not been used. Emits a TransferEvent on success.
-    pub fn transfer_ticket(env: Env, ticket_id: Symbol, from: Address, to: Address) -> Ticket {
-        from.require_auth();
-
+    /// Returns true if the given address is the current owner of the ticket.
+    pub fn is_ticket_owner(env: Env, ticket_id: Symbol, address: Address) -> bool {
         let ticket = env
             .storage()
             .persistent()
-            .get::<Symbol, Ticket>(&ticket_id)
+            .get::<DataKey, Ticket>(&DataKey::Ticket(ticket_id))
             .expect("Ticket not found");
 
-        if ticket.owner != from {
-            panic!("Unauthorized: not the ticket owner");
-        }
-
-        if ticket.is_used {
-            panic!("Cannot transfer: ticket has already been used");
-        }
-
-        let updated_ticket = Ticket {
-            id: ticket.id.clone(),
-            event_id: ticket.event_id.clone(),
-            owner: to.clone(),
-            is_used: ticket.is_used,
-        };
-
-        env.storage().persistent().set(&ticket_id, &updated_ticket);
-
-        TransferEvent::emit(&env, ticket_id.clone(), from, to);
-
-        log!(
-            &env,
-            "Ticket transferred: id={:?}, from={:?}, to={:?}",
-            ticket_id,
-            ticket.owner,
-            updated_ticket.owner
-        );
-
-        updated_ticket
+        ticket.owner == address
     }
 
-    /// Mark a ticket as used (prevents further transfers).
-    pub fn mark_ticket_used(env: Env, ticket_id: Symbol) -> Ticket {
+    /// Returns the current owner and used status of a ticket as a tuple (Address, bool).
+    pub fn get_ticket_status(env: Env, ticket_id: Symbol) -> (Address, bool) {
         let ticket = env
             .storage()
             .persistent()
-            .get::<Symbol, Ticket>(&ticket_id)
+            .get::<DataKey, Ticket>(&DataKey::Ticket(ticket_id))
             .expect("Ticket not found");
 
-        let used_ticket = Ticket {
-            id: ticket.id.clone(),
-            event_id: ticket.event_id.clone(),
-            owner: ticket.owner.clone(),
-            is_used: true,
+        (ticket.owner, ticket.is_used)
+    }
+
+    /// Configure the multi-sig escrow signers and threshold for an event.
+    pub fn set_escrow_signers(
+        env: Env,
+        event_id: Symbol,
+        signers: Vec<Address>,
+        threshold: u32,
+    ) {
+        if threshold == 0 || threshold > signers.len() {
+            panic!("Invalid threshold: must be > 0 and <= number of signers");
+        }
+
+        let config = EscrowConfig {
+            event_id: event_id.clone(),
+            signers,
+            threshold,
         };
 
-        env.storage().persistent().set(&ticket_id, &used_ticket);
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowConfig(event_id.clone()), &config);
 
-        log!(&env, "Ticket marked as used: id={:?}", ticket_id);
+        log!(&env, "Escrow signers set for event={:?}", event_id);
+    }
 
-        used_ticket
+    /// Approve the release of escrow funds for an event.
+    pub fn approve_release(env: Env, event_id: Symbol, signer: Address) {
+        signer.require_auth();
+
+        let config = env
+            .storage()
+            .persistent()
+            .get::<DataKey, EscrowConfig>(&DataKey::EscrowConfig(event_id.clone()))
+            .expect("Escrow config not found");
+
+        if !config.signers.iter().any(|s| s == signer) {
+            panic!("Unauthorized: signer not in escrow group");
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowApproval(event_id.clone(), signer.clone()), &true);
+
+        log!(&env, "Release approved: event={:?}, signer={:?}", event_id, signer);
     }
 
     /// Validate a ticket at event check-in (MAIN FEATURE)
@@ -203,9 +199,13 @@ impl TicketContract {
     pub fn is_ticket_owner(env: Env, ticket_id: Symbol, address: Address) -> bool {
         let ticket = env
             .storage()
+    /// Revoke a previously given approval.
+    pub fn revoke_approval(env: Env, event_id: Symbol, signer: Address) {
+        signer.require_auth();
+
+        env.storage()
             .persistent()
-            .get::<Symbol, Ticket>(&ticket_id)
-            .expect("Ticket not found");
+            .remove(&DataKey::EscrowApproval(event_id.clone(), signer.clone()));
 
         // 2. Check if ticket is already used (prevent double check-in)
         if ticket.is_used {
@@ -255,17 +255,47 @@ impl TicketContract {
     }
 }
         ticket.owner == address
+        log!(&env, "Approval revoked: event={:?}, signer={:?}", event_id, signer);
     }
 
-    /// Returns the current owner and used status of a ticket as a tuple (Address, bool).
-    pub fn get_ticket_status(env: Env, ticket_id: Symbol) -> (Address, bool) {
-        let ticket = env
+    /// Check if the threshold is met and execute fund distribution.
+    pub fn distribute_escrow(env: Env, event_id: Symbol, destination: Address) {
+        let config = env
             .storage()
             .persistent()
-            .get::<Symbol, Ticket>(&ticket_id)
-            .expect("Ticket not found");
+            .get::<DataKey, EscrowConfig>(&DataKey::EscrowConfig(event_id.clone()))
+            .expect("Escrow config not found");
+
+        let mut approval_count = 0;
+        for signer in config.signers.iter() {
+            if env
+                .storage()
+                .persistent()
+                .has(&DataKey::EscrowApproval(event_id.clone(), signer.clone()))
+            {
+                approval_count += 1;
+            }
+        }
 
         (ticket.owner, ticket.is_used)
     }
     
 }
+        if approval_count < config.threshold {
+            panic!("Threshold not met for escrow release");
+        }
+
+        log!(
+            &env,
+            "Escrow funds distributed: event={:?}, to={:?}",
+            event_id,
+            destination
+        );
+
+        // Clear approvals after successful distribution
+        for signer in config.signers.iter() {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::EscrowApproval(event_id.clone(), signer.clone()));
+        }
+    }
